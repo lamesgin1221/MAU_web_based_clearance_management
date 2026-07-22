@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}MAU Clearance System{% endblock %}
+{% block content %}
+<div class="row align-items-center g-5">
+    <div class="col-lg-7">
+        <h1 class="display-5 fw-bold">MAU Clearance System</h1>
+        <p class="lead text-muted">Fast student clearance with role-based approvals for departments, library, finance, dormitory, and registrar.</p>
+        <div class="d-flex gap-3">
+            <a class="btn btn-primary btn-lg" href="{{ url_for('register') }}">Register</a>
+            <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('login') }}">Login</a>
+        </div>
+    </div>
+    <div class="col-lg-5 text-center">
+        <img src="{{ url_for('assets_file', filename='images/Mekdela_Amba_University_logo.jpg') }}" alt="MAU Logo" class="img-fluid mb-4 rounded shadow-sm" style="max-height: 280px; object-fit: contain;">
+        <div class="card shadow-sm border-0 p-4">
+            <h3>Key Features</h3>
+            <ul class="list-group list-group-flush mt-3">
+                <li class="list-group-item">Student registration and login</li>
+                <li class="list-group-item">Role-based clearance workflow</li>
+                <li class="list-group-item">Approval status tracking</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

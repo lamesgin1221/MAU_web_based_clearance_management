@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Edit Application | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('student_status') }}">Back to Status</a>
+</div>
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <h3 class="mb-3">Edit Clearance Application</h3>
+        <form method="post" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label">Purpose</label>
+                <input type="text" class="form-control" name="purpose" value="{{ application.purpose }}" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Academic Year</label>
+                <input type="text" class="form-control" name="academic_year" value="{{ application.academic_year }}" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Upload New Photo</label>
+                <input type="file" class="form-control" name="photo" accept="image/*">
+                <div class="form-text">Leave empty to keep the existing photo.</div>
+            </div>
+            <button class="btn btn-primary" type="submit">Save Changes</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Clearance Certificate | MAU Clearance{% endblock %}
+{% block content %}
+{% if application and application.status == 'approved' %}
+    <div class="card shadow-sm border-0 p-4">
+        <h2 class="text-center mb-4">Clearance Certificate</h2>
+        <p class="text-center text-muted">This certifies that</p>
+        <h3 class="text-center fw-bold">{{ application.user.full_name }}</h3>
+        <p class="text-center mb-4">with Student ID {{ application.user.student_id }} from {{ application.user.department }} has completed all clearance requirements for {{ application.purpose }}.</p>
+        <p class="text-center">Issued on {{ application.submitted_at.strftime('%Y-%m-%d') }}</p>
+        <div class="text-center mt-4">
+            <button class="btn btn-primary" onclick="window.print()">Print Certificate</button>
+        </div>
+    </div>
+{% else %}
+    <div class="alert alert-warning">No approved clearance certificate is available yet.</div>
+{% endif %}
+{% endblock %}

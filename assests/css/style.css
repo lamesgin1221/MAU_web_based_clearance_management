@@ -1,0 +1,28 @@
+:root {
+    color-scheme: light;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fb;
+}
+
+.navbar-brand {
+    font-weight: 700;
+}
+
+.card {
+    border-radius: 16px;
+}
+
+.table th {
+    white-space: nowrap;
+}
+
+.badge {
+    text-transform: uppercase;
+}
+
+.footer {
+    color: #6c757d;
+}

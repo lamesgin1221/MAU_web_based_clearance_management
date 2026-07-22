@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back</a>
+</div>
+<div class="row g-4 mb-4">
+    <div class="col-md-3"><div class="card shadow-sm border-0 p-3"><h6 class="text-muted">Students</h6><h3>{{ students }}</h3></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0 p-3"><h6 class="text-muted">Applications</h6><h3>{{ applications }}</h3></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0 p-3"><h6 class="text-muted">Approved</h6><h3>{{ approved }}</h3></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0 p-3"><h6 class="text-muted">Pending</h6><h3>{{ pending }}</h3></div></div>
+</div>
+<div class="row g-4">
+    <div class="col-lg-3">
+        <div class="list-group shadow-sm">
+            <a href="{{ url_for('admin_students') }}" class="list-group-item list-group-item-action">Students</a>
+            <a href="{{ url_for('admin_users') }}" class="list-group-item list-group-item-action">Users</a>
+            <a href="{{ url_for('admin_applications') }}" class="list-group-item list-group-item-action">Applications</a>
+            <a href="{{ url_for('admin_reports') }}" class="list-group-item list-group-item-action">Reports</a>
+        </div>
+    </div>
+    <div class="col-lg-9">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <h5 class="card-title">Recent Clearance Requests</h5>
+                <table class="table table-striped mt-3">
+                    <thead><tr><th>Student</th><th>Purpose</th><th>Status</th><th>Submitted</th></tr></thead>
+                    <tbody>
+                    {% for application in recent %}
+                        <tr>
+                            <td>{{ application.user.full_name }} ({{ application.user.student_id }})</td>
+                            <td>{{ application.purpose }}</td>
+                            <td>{{ application.status }}</td>
+                            <td>{{ application.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="4" class="text-center">No applications yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

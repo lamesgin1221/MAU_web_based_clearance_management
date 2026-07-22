@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Profile | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('student_dashboard') }}">Back to Dashboard</a>
+</div>
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <h3 class="mb-3">My Profile</h3>
+        <form method="post">
+            <div class="mb-3">
+                <label class="form-label">Full Name</label>
+                <input type="text" class="form-control" value="{{ current_user.full_name }}" disabled>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" value="{{ current_user.email }}" disabled>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Phone</label>
+                <input type="text" class="form-control" name="phone" value="{{ current_user.phone }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Department</label>
+                <input type="text" class="form-control" name="department" value="{{ current_user.department }}">
+            </div>
+            <button class="btn btn-primary" type="submit">Update Profile</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

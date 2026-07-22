@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Reports | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
+</div>
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <h3 class="mb-3">Clearance Reports</h3>
+        <table class="table table-striped">
+            <thead><tr><th>Student</th><th>Purpose</th><th>Academic Year</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th><th>Registrar</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for application in applications %}
+                <tr>
+                    <td>{{ application.user.full_name }} ({{ application.user.student_id }})</td>
+                    <td>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="update">
+                            <input type="hidden" name="application_id" value="{{ application.id }}">
+                            <input type="text" class="form-control form-control-sm mb-2" name="purpose" value="{{ application.purpose }}" required>
+                    </td>
+                    <td><input type="text" class="form-control form-control-sm mb-2" name="academic_year" value="{{ application.academic_year }}" required></td>
+                    <td><select class="form-select form-select-sm mb-2" name="status"><option value="pending" {% if application.status == 'pending' %}selected{% endif %}>Pending</option><option value="approved" {% if application.status == 'approved' %}selected{% endif %}>Approved</option><option value="rejected" {% if application.status == 'rejected' %}selected{% endif %}>Rejected</option></select></td>
+                    <td>{{ application.department_status }}</td>
+                    <td>{{ application.library_status }}</td>
+                    <td>{{ application.finance_status }}</td>
+                    <td>{{ application.registrar_status }}</td>
+                    <td>
+                            <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
+                        </form>
+                        <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this report?');">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="application_id" value="{{ application.id }}">
+                            <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="9" class="text-center">No reports available.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

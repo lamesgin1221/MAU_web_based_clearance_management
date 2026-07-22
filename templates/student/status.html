@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Clearance Status | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('student_dashboard') }}">Back to Dashboard</a>
+</div>
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <h3 class="mb-3">My Clearance Status</h3>
+        <table class="table table-striped">
+            <thead><tr><th>Purpose</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th><th>Registrar</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for application in applications %}
+                <tr>
+                    <td>
+                        {{ application.purpose }}
+                        {% if application.photo_path %}
+                            <br><img src="{{ url_for('uploaded_file', filename=application.photo_path) }}" alt="Uploaded photo" class="img-thumbnail mt-2" style="max-width: 80px;">
+                        {% endif %}
+                    </td>
+                    <td>{{ application.status }}</td>
+                    <td>{{ application.department_status }}</td>
+                    <td>{{ application.library_status }}</td>
+                    <td>{{ application.finance_status }}</td>
+                    <td>{{ application.registrar_status }}</td>
+                    <td>
+                        <div class="d-flex gap-2">
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('student_edit_application', application_id=application.id) }}">Edit</a>
+                            <form method="post" action="{{ url_for('student_delete_application', application_id=application.id) }}" onsubmit="return confirm('Delete this application?');">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="7" class="text-center">No clearance applications yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
