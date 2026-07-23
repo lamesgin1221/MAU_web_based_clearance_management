@@ -45,6 +45,7 @@ class User(db.Model):
     department = db.Column(db.String(100), nullable=True)
     phone = db.Column(db.String(30), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    applications = db.relationship('ClearanceApplication', cascade='all, delete-orphan', passive_deletes=True)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
@@ -65,7 +66,7 @@ class ClearanceApplication(db.Model):
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     approved_by = db.Column(db.String(100), nullable=True)
-    user = db.relationship('User', backref=db.backref('applications', lazy=True))
+    user = db.relationship('User', foreign_keys=[user_id])
 
     def refresh_status(self):
         statuses = [
@@ -358,8 +359,44 @@ def student_status():
 def student_profile():
     user = current_user()
     if request.method == 'POST':
-        user.phone = request.form.get('phone', '').strip()
-        user.department = request.form.get('department', '').strip()
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip()
+        department = request.form.get('department', '').strip()
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate email uniqueness if changed
+        if email and email != user.email:
+            if User.query.filter_by(email=email).first():
+                flash('Email already in use by another account.', 'danger')
+                return redirect(url_for('student_profile'))
+        
+        # Handle password change
+        if current_password and new_password and confirm_password:
+            if not user.check_password(current_password):
+                flash('Current password is incorrect.', 'danger')
+                return redirect(url_for('student_profile'))
+            if new_password != confirm_password:
+                flash('New passwords do not match.', 'danger')
+                return redirect(url_for('student_profile'))
+            if len(new_password) < 6:
+                flash('Password must be at least 6 characters.', 'danger')
+                return redirect(url_for('student_profile'))
+            user.password_hash = generate_password_hash(new_password)
+            flash('Password changed successfully.', 'success')
+        
+        # Update other fields
+        if full_name:
+            user.full_name = full_name
+        if email:
+            user.email = email
+        if phone:
+            user.phone = phone
+        if department:
+            user.department = department
+        
         db.session.commit()
         flash('Profile updated successfully.', 'success')
         return redirect(url_for('student_profile'))
@@ -467,28 +504,121 @@ def admin_reports():
 @roles_required('admin')
 def admin_users():
     if request.method == 'POST':
+        action = request.form.get('action', '')
+        user_id = request.form.get('user_id', type=int)
+        
+        # Only admin can delete staff
+        if action == 'delete' and user_id:
+            user = User.query.filter_by(id=user_id).first()
+            if user and user.role != 'student' and user.role != 'admin':
+                db.session.delete(user)
+                db.session.commit()
+                flash('Staff member deleted successfully.', 'success')
+            else:
+                flash('Cannot delete this user.', 'danger')
+        # Admin creates new staff
+        elif action == 'create':
+            full_name = request.form.get('full_name', '').strip()
+            email = request.form.get('email', '').strip()
+            password = request.form.get('password', '')
+            role = request.form.get('role', 'department')
+            if not full_name or not email or not password:
+                flash('Please fill all fields.', 'danger')
+            elif User.query.filter_by(email=email).first():
+                flash('A user with that email already exists.', 'danger')
+            else:
+                user = User(
+                    full_name=full_name,
+                    email=email,
+                    password_hash=generate_password_hash(password),
+                    role=role,
+                    department=role.title(),
+                )
+                db.session.add(user)
+                db.session.commit()
+                flash('Staff member created successfully.', 'success')
+        return redirect(url_for('admin_users'))
+    
+    users = User.query.filter(User.role != 'student').order_by(User.created_at.desc()).all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/office/students', methods=['GET', 'POST'])
+@roles_required('department', 'library', 'finance', 'dormitory', 'registrar', 'admin')
+def office_students():
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        student_id = request.form.get('student_id', type=int)
+        
+        # Office staff can edit students
+        if action == 'update' and student_id:
+            student = User.query.filter_by(id=student_id, role='student').first()
+            if student:
+                student.full_name = request.form.get('full_name', '').strip() or student.full_name
+                student.email = request.form.get('email', '').strip() or student.email
+                student.student_id = request.form.get('student_id_value', '').strip() or student.student_id
+                student.department = request.form.get('department', '').strip() or student.department
+                db.session.commit()
+                flash('Student updated successfully.', 'success')
+            else:
+                flash('Student not found.', 'danger')
+        # Office staff can delete students
+        elif action == 'delete' and student_id:
+            student = User.query.filter_by(id=student_id, role='student').first()
+            if student:
+                db.session.delete(student)
+                db.session.commit()
+                flash('Student deleted successfully.', 'success')
+            else:
+                flash('Student not found.', 'danger')
+        return redirect(url_for('office_students'))
+    
+    students = User.query.filter_by(role='student').order_by(User.created_at.desc()).all()
+    return render_template('office/students.html', students=students)
+
+@app.route('/office/profile', methods=['GET', 'POST'])
+@roles_required('department', 'library', 'finance', 'dormitory', 'registrar')
+def office_profile():
+    user = current_user()
+    if request.method == 'POST':
         full_name = request.form.get('full_name', '').strip()
         email = request.form.get('email', '').strip()
-        password = request.form.get('password', '')
-        role = request.form.get('role', 'department')
-        if not full_name or not email or not password:
-            flash('Please fill all fields.', 'danger')
-        elif User.query.filter_by(email=email).first():
-            flash('A user with that email already exists.', 'danger')
-        else:
-            user = User(
-                full_name=full_name,
-                email=email,
-                password_hash=generate_password_hash(password),
-                role=role,
-                department=role.title(),
-            )
-            db.session.add(user)
-            db.session.commit()
-            flash('User created successfully.', 'success')
-            return redirect(url_for('admin_users'))
-    users = User.query.order_by(User.created_at.desc()).all()
-    return render_template('admin/users.html', users=users)
+        phone = request.form.get('phone', '').strip()
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate email uniqueness if changed
+        if email and email != user.email:
+            if User.query.filter_by(email=email).first():
+                flash('Email already in use by another account.', 'danger')
+                return redirect(url_for('office_profile'))
+        
+        # Handle password change
+        if current_password and new_password and confirm_password:
+            if not user.check_password(current_password):
+                flash('Current password is incorrect.', 'danger')
+                return redirect(url_for('office_profile'))
+            if new_password != confirm_password:
+                flash('New passwords do not match.', 'danger')
+                return redirect(url_for('office_profile'))
+            if len(new_password) < 6:
+                flash('Password must be at least 6 characters.', 'danger')
+                return redirect(url_for('office_profile'))
+            user.password_hash = generate_password_hash(new_password)
+            flash('Password changed successfully.', 'success')
+        
+        # Update other fields
+        if full_name:
+            user.full_name = full_name
+        if email:
+            user.email = email
+        if phone:
+            user.phone = phone
+        
+        db.session.commit()
+        flash('Profile updated successfully.', 'success')
+        return redirect(url_for('office_profile'))
+    return render_template('office/profile.html')
 
 def send_email_to_student(user, message):
     email_address = getattr(user, 'email', '')

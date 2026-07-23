@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
-{% block title %}Users | MAU Clearance{% endblock %}
+{% block title %}Office Staff | MAU Clearance{% endblock %}
 {% block content %}
 <div class="mb-4">
     <a class="btn btn-outline-secondary" href="{{ url_for('admin_dashboard') }}">Back to Dashboard</a>
 </div>
 <div class="card shadow-sm border-0 mb-4">
     <div class="card-body">
-        <h5>Create Staff Account</h5>
+        <h5>Create Office Staff Account</h5>
         <form method="post" class="row g-3 mt-2">
-            <div class="col-md-4"><input type="text" class="form-control" name="full_name" placeholder="Full Name" required></div>
+            <input type="hidden" name="action" value="create">
+            <div class="col-md-3"><input type="text" class="form-control" name="full_name" placeholder="Full Name" required></div>
             <div class="col-md-3"><input type="email" class="form-control" name="email" placeholder="Email" required></div>
             <div class="col-md-2"><input type="password" class="form-control" name="password" placeholder="Password" required></div>
             <div class="col-md-2">
@@ -18,28 +19,39 @@
                     <option value="finance">Finance</option>
                     <option value="dormitory">Dormitory</option>
                     <option value="registrar">Registrar</option>
-                    <option value="admin">Admin</option>
                 </select>
             </div>
-            <div class="col-md-1"><button class="btn btn-primary" type="submit">Save</button></div>
+            <div class="col-md-2"><button class="btn btn-primary" type="submit">Create Staff</button></div>
         </form>
     </div>
 </div>
 <div class="card shadow-sm border-0">
     <div class="card-body">
-        <h3 class="mb-3">All Users</h3>
+        <h3 class="mb-3">Office Staff Members</h3>
         <table class="table table-striped">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
             <tbody>
             {% for user in users %}
                 <tr>
+                    <td><span class="badge bg-warning">OFF-{{ user.id }}</span></td>
                     <td>{{ user.full_name }}</td>
                     <td>{{ user.email }}</td>
-                    <td>{{ user.role }}</td>
+                    <td>{{ user.role|upper }}</td>
                     <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        {% if user.role != 'admin' %}
+                            <form method="post" class="d-inline" onsubmit="return confirm('Delete this staff member?');">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                            </form>
+                        {% else %}
+                            <span class="text-muted text-sm">Admin</span>
+                        {% endif %}
+                    </td>
                 </tr>
             {% else %}
-                <tr><td colspan="4" class="text-center">No users found.</td></tr>
+                <tr><td colspan="6" class="text-center">No staff members found.</td></tr>
             {% endfor %}
             </tbody>
         </table>

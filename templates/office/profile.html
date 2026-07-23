@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}Profile | MAU Clearance{% endblock %}
+{% block title %}My Profile | MAU Clearance{% endblock %}
 {% block content %}
 <div class="mb-4">
-    <a class="btn btn-outline-secondary" href="{{ url_for('student_dashboard') }}">Back to Dashboard</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back</a>
 </div>
 <div class="row">
     <div class="col-lg-8">
@@ -21,10 +21,6 @@
                     <div class="mb-3">
                         <label class="form-label">Phone</label>
                         <input type="text" class="form-control" name="phone" value="{{ current_user.phone or '' }}">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Department</label>
-                        <input type="text" class="form-control" name="department" value="{{ current_user.department or '' }}">
                     </div>
                     <button class="btn btn-primary" type="submit">Update Profile</button>
                 </form>
@@ -59,12 +55,16 @@
             <div class="card-body">
                 <h5 class="mb-3">Account Information</h5>
                 <div class="mb-3">
-                    <small class="text-muted">Student ID</small>
-                    <p class="mb-0"><strong>{{ current_user.student_id }}</strong></p>
+                    <small class="text-muted">Office Staff ID</small>
+                    <p class="mb-0"><strong>OFF-{{ current_user.id }}</strong></p>
                 </div>
                 <div class="mb-3">
                     <small class="text-muted">Role</small>
-                    <p class="mb-0"><strong>Student</strong></p>
+                    <p class="mb-0"><strong>{{ current_user.role|upper }}</strong></p>
+                </div>
+                <div class="mb-3">
+                    <small class="text-muted">Department</small>
+                    <p class="mb-0"><strong>{{ current_user.department or 'N/A' }}</strong></p>
                 </div>
                 <div class="mb-3">
                     <small class="text-muted">Member Since</small>

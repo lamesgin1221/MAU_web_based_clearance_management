@@ -11,9 +11,12 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
         <a class="navbar-brand" href="{{ url_for('index') }}">MAU Clearance</a>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
             {% if current_user %}
                 <span class="navbar-text text-white">{{ current_user.full_name }}</span>
+                {% if current_user.role != 'student' and current_user.role != 'admin' %}
+                    <a class="btn btn-outline-light btn-sm" href="{{ url_for('office_profile') }}">Profile</a>
+                {% endif %}
                 <a class="btn btn-outline-light btn-sm" href="{{ url_for('logout') }}">Logout</a>
             {% else %}
                 <a class="btn btn-outline-light btn-sm" href="{{ url_for('login') }}">Login</a>

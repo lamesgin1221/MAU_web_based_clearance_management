@@ -1,18 +1,28 @@
 :root {
     color-scheme: light;
+    --primary: #2528eb;
+    --secondary: #1e40af;
+    --accent: #02f70e;
 }
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: #f5f7fb;
+    min-height: 100vh;
+    position: relative;
+    background-color: rgba(4, 40, 245, 0.973);
 }
 
 .navbar-brand {
     font-weight: 700;
+    color: #ffffff;
+    background-color: rgba(4, 40, 245, 0.973);
 }
 
 .card {
     border-radius: 16px;
+    background-color: rgba(220, 5, 248, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .table th {
@@ -21,8 +31,12 @@ body {
 
 .badge {
     text-transform: uppercase;
+    color: #0720fcfb;
+    background-color: rgba(45, 250, 4, 0.993);
+    padding: 20px 0;
+    margin-top: 40px
 }
-
 .footer {
-    color: #6c757d;
+    color: #051df5;
+    background-color: rgb(4, 245, 4);
 }

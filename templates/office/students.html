@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Manage Students | MAU Clearance{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back</a>
+</div>
+<div class="alert alert-success">
+    <strong>Office Staff Access:</strong> All office staff can edit and delete student records from this page.
+</div>
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <h3 class="mb-3">Manage Registered Students</h3>
+        <table class="table table-striped">
+            <thead><tr><th>Code</th><th>Name</th><th>Email</th><th>Student ID</th><th>Department</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for student in students %}
+                <tr>
+                    <td><span class="badge bg-info">STU-{{ student.id }}</span></td>
+                    <td>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="update">
+                            <input type="hidden" name="student_id" value="{{ student.id }}">
+                            <input type="text" class="form-control form-control-sm mb-2" name="full_name" value="{{ student.full_name }}" required>
+                    </td>
+                    <td><input type="email" class="form-control form-control-sm mb-2" name="email" value="{{ student.email }}" required></td>
+                    <td><input type="text" class="form-control form-control-sm mb-2" name="student_id_value" value="{{ student.student_id }}"></td>
+                    <td><input type="text" class="form-control form-control-sm mb-2" name="department" value="{{ student.department }}"></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
+                        </form>
+                        <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this student?');">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="student_id" value="{{ student.id }}">
+                            <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="text-center">No students found.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

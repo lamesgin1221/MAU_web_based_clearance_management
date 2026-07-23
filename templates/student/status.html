@@ -8,7 +8,11 @@
     <div class="card-body">
         <h3 class="mb-3">My Clearance Status</h3>
         <table class="table table-striped">
+<<<<<<< HEAD
             <thead><tr><th>Purpose</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th>th>dormitary</th><th>Registrar</th><th>Actions</th></tr></thead>
+=======
+            <thead><tr><th>Purpose</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th><th>Dormitory</th><th>Registrar</th><th>Actions</th></tr></thead>
+>>>>>>> bb6a293 (Update project with latest changes)
             <tbody>
             {% for application in applications %}
                 <tr>
@@ -22,6 +26,7 @@
                     <td>{{ application.department_status }}</td>
                     <td>{{ application.library_status }}</td>
                     <td>{{ application.finance_status }}</td>
+                    <td>{{ application.dormitory_status }}</td>
                     <td>{{ application.registrar_status }}</td>
                     <td>
                         <div class="d-flex gap-2">
@@ -33,7 +38,7 @@
                     </td>
                 </tr>
             {% else %}
-                <tr><td colspan="7" class="text-center">No clearance applications yet.</td></tr>
+                <tr><td colspan="8" class="text-center">No clearance applications yet.</td></tr>
             {% endfor %}
             </tbody>
         </table>
