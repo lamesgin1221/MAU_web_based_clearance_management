@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Error {{ code }} · MAU Clearance{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-body text-center">
+                <h1 class="display-5">{{ code }}</h1>
+                <p class="text-muted">{{ message }}</p>
+                <a class="btn btn-primary" href="{{ url_for('index') }}">Back to home</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
