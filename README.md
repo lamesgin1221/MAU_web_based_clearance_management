@@ -118,9 +118,20 @@ The application uses SQLite by default, which is automatically created on first 
 - View applications
 
 ## Running Tests
+Install the test dependencies and run the suite:
 ```bash
-python -m pytest tests/
+pip install -r requirements-dev.txt
+python -m pytest
 ```
+
+With a coverage report:
+```bash
+python -m pytest --cov=app --cov=init_db --cov-report=term-missing
+```
+
+Tests run against a throwaway SQLite database. The database URI can be overridden
+with the `DATABASE_URL` environment variable; the tests set it automatically so the
+development `data.db` is never touched.
 
 ## Development
 To run in debug mode:
