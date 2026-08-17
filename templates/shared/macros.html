@@ -1,0 +1,15 @@
+{% macro status_select(current_status, name='status') %}
+<select class="form-select form-select-sm mb-2" name="{{ name }}">
+    <option value="pending" {% if current_status == 'pending' %}selected{% endif %}>Pending</option>
+    <option value="approved" {% if current_status == 'approved' %}selected{% endif %}>Approved</option>
+    <option value="rejected" {% if current_status == 'rejected' %}selected{% endif %}>Rejected</option>
+</select>
+{% endmacro %}
+
+{% macro delete_form(field, record_id, confirm_message) %}
+<form method="post" class="d-inline ms-2" onsubmit="return confirm('{{ confirm_message }}');">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="{{ field }}" value="{{ record_id }}">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+</form>
+{% endmacro %}

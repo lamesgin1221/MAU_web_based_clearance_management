@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}My Profile | MAU Clearance{% endblock %}
+{% block title %}{{ page_title }} | MAU Clearance{% endblock %}
 {% block content %}
 <div class="mb-4">
-    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back</a>
+    <a class="btn btn-outline-secondary" href="{{ back_url }}">{{ back_label }}</a>
 </div>
 <div class="row">
     <div class="col-lg-8">
@@ -22,6 +22,12 @@
                         <label class="form-label">Phone</label>
                         <input type="text" class="form-control" name="phone" value="{{ current_user.phone or '' }}">
                     </div>
+                    {% if editable_department %}
+                    <div class="mb-3">
+                        <label class="form-label">Department</label>
+                        <input type="text" class="form-control" name="department" value="{{ current_user.department or '' }}">
+                    </div>
+                    {% endif %}
                     <button class="btn btn-primary" type="submit">Update Profile</button>
                 </form>
             </div>
@@ -55,17 +61,19 @@
             <div class="card-body">
                 <h5 class="mb-3">Account Information</h5>
                 <div class="mb-3">
-                    <small class="text-muted">Office Staff ID</small>
-                    <p class="mb-0"><strong>OFF-{{ current_user.id }}</strong></p>
+                    <small class="text-muted">{{ identifier_label }}</small>
+                    <p class="mb-0"><strong>{{ identifier_value }}</strong></p>
                 </div>
                 <div class="mb-3">
                     <small class="text-muted">Role</small>
-                    <p class="mb-0"><strong>{{ current_user.role|upper }}</strong></p>
+                    <p class="mb-0"><strong>{{ role_label }}</strong></p>
                 </div>
+                {% if show_department_summary %}
                 <div class="mb-3">
                     <small class="text-muted">Department</small>
                     <p class="mb-0"><strong>{{ current_user.department or 'N/A' }}</strong></p>
                 </div>
+                {% endif %}
                 <div class="mb-3">
                     <small class="text-muted">Member Since</small>
                     <p class="mb-0"><strong>{{ current_user.created_at.strftime('%B %d, %Y') }}</strong></p>
