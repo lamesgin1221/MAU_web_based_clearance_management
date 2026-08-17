@@ -3,14 +3,12 @@
 Database initialization and management script for MAU Clearance System
 """
 import sys
-import os
 from pathlib import Path
 
 # Add the project root to the path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app import app, db, User
-from werkzeug.security import generate_password_hash
+from app import app, db, ensure_default_admin
 
 
 def init_db():
@@ -20,21 +18,7 @@ def init_db():
         db.create_all()
         print("✓ Database tables created")
 
-        # Create default admin if it doesn't exist
-        admin = User.query.filter_by(email='admin@mau.edu.ng').first()
-        if not admin:
-            print("Creating default admin user...")
-            admin = User(
-                full_name='System Administrator',
-                email='admin@mau.edu.ng',
-                password_hash=generate_password_hash('Admin@123'),
-                role='admin',
-                student_id='ADM001',
-                department='Administration',
-                phone='07000000000',
-            )
-            db.session.add(admin)
-            db.session.commit()
+        if ensure_default_admin():
             print("✓ Admin user created")
             print("  Email: admin@mau.edu.ng")
             print("  Password: Admin@123")

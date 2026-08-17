@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'shared/macros.html' import delete_form %}
 {% block title %}Manage Students | MAU Clearance{% endblock %}
 {% block content %}
 <div class="mb-4">
@@ -28,11 +29,7 @@
                     <td>
                         <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
                         </form>
-                        <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this student?');">
-                            <input type="hidden" name="action" value="delete">
-                            <input type="hidden" name="student_id" value="{{ student.id }}">
-                            <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                        </form>
+                        {{ delete_form('student_id', student.id, 'Delete this student?') }}
                     </td>
                 </tr>
             {% else %}

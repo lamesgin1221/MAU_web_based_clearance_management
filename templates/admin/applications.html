@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'shared/macros.html' import status_select, delete_form %}
 {% block title %}Applications | MAU Clearance{% endblock %}
 {% block content %}
 <div class="mb-4">
@@ -21,22 +22,12 @@
                             <input type="text" class="form-control form-control-sm mb-2" name="purpose" value="{{ application.purpose }}" required>
                     </td>
                     <td><input type="text" class="form-control form-control-sm mb-2" name="academic_year" value="{{ application.academic_year }}"></td>
-                    <td>
-                        <select class="form-select form-select-sm mb-2" name="status">
-                            <option value="pending" {% if application.status == 'pending' %}selected{% endif %}>Pending</option>
-                            <option value="approved" {% if application.status == 'approved' %}selected{% endif %}>Approved</option>
-                            <option value="rejected" {% if application.status == 'rejected' %}selected{% endif %}>Rejected</option>
-                        </select>
-                    </td>
+                    <td>{{ status_select(application.status) }}</td>
                     <td>{{ application.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
                         </form>
-                        <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this application?');">
-                            <input type="hidden" name="action" value="delete">
-                            <input type="hidden" name="application_id" value="{{ application.id }}">
-                            <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                        </form>
+                        {{ delete_form('application_id', application.id, 'Delete this application?') }}
                     </td>
                 </tr>
             {% else %}
