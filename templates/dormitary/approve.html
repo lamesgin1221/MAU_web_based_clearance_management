@@ -18,6 +18,7 @@
                     <td>{{ application.dormitory_status }}</td>
                     <td>
                         <form method="post" class="d-flex gap-2">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="application_id" value="{{ application.id }}">
                             <select class="form-select form-select-sm" name="decision">
                                 <option value="approved">Approve</option>

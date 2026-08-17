@@ -4,7 +4,14 @@ import pytest
 from flask import session
 
 import app as app_module
-from app import ROLE_LABELS, current_user, role_dashboard, save_uploaded_photo, update_approval
+from app import (
+    ROLE_LABELS,
+    PhotoUploadError,
+    current_user,
+    role_dashboard,
+    save_uploaded_photo,
+    update_approval,
+)
 
 
 @pytest.mark.parametrize(
@@ -60,24 +67,25 @@ def test_save_uploaded_photo_returns_none_for_empty_filename(flask_app):
         assert save_uploaded_photo() is None
 
 
-def test_save_uploaded_photo_writes_file_with_timestamp_prefix(flask_app):
+def test_save_uploaded_photo_writes_file_with_generated_name(flask_app):
     data = {'photo': (io.BytesIO(b'image-bytes'), 'passport.png')}
     with flask_app.test_request_context('/', method='POST', data=data):
         stored_name = save_uploaded_photo()
 
-    assert stored_name.endswith('_passport.png')
+    assert stored_name.endswith('.png')
+    assert 'passport' not in stored_name
     saved_file = app_module.UPLOAD_FOLDER / stored_name
     assert saved_file.read_bytes() == b'image-bytes'
 
 
-def test_save_uploaded_photo_sanitises_dangerous_filenames(flask_app):
-    data = {'photo': (io.BytesIO(b'x'), '../../etc/passwd')}
+@pytest.mark.parametrize('filename', ['../../etc/passwd', 'evil.html', 'shell.py', 'noextension'])
+def test_save_uploaded_photo_rejects_non_image_files(flask_app, filename):
+    data = {'photo': (io.BytesIO(b'x'), filename)}
     with flask_app.test_request_context('/', method='POST', data=data):
-        stored_name = save_uploaded_photo()
+        with pytest.raises(PhotoUploadError):
+            save_uploaded_photo()
 
-    assert '..' not in stored_name
-    assert '/' not in stored_name
-    assert (app_module.UPLOAD_FOLDER / stored_name).exists()
+    assert list(app_module.UPLOAD_FOLDER.iterdir()) == []
 
 
 @pytest.fixture

@@ -234,7 +234,7 @@ def test_office_profile_rejects_duplicate_email(client, make_user, login):
         ),
         (
             {'current_password': 'Passw0rd!', 'new_password': 'tiny', 'confirm_password': 'tiny'},
-            b'Password must be at least 6 characters.',
+            b'Password must be at least 8 characters.',
         ),
     ],
 )

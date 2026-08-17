@@ -47,11 +47,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 5. Configure Environment (Optional)
-Copy `.env.example` to `.env` and update settings if needed:
+### 5. Configure Environment (Required)
+Copy `.env.example` to `.env` and fill it in. `FLASK_SECRET` is required — the app refuses to start without it unless `FLASK_DEBUG=1`:
 ```bash
 cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"  # paste into FLASK_SECRET
 ```
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` to bootstrap the first admin account; no admin is created otherwise.
+Office/staff accounts are created by an admin (Admin → Users), not by public self-registration.
 
 ### 6. Run the Application
 ```bash
@@ -60,9 +63,8 @@ python app.py
 
 The application will be available at `http://localhost:5000`
 
-## Default Admin Credentials
-- Email: `admin@mau.edu.ng`
-- Password: `Admin@123`
+## Admin Account
+The first admin is created on startup only when `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set in the environment.
 
 ## Project Structure
 ```
@@ -153,6 +155,5 @@ For issues or questions, contact the development team.
    ```
 7. Open `http://127.0.0.1:5000` in your browser.
 
-### Default admin login for Flask
-- Email: admin@mau.edu.ng
-- Password: Admin@123
+### Admin login for Flask
+Create the admin by setting `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first start.

@@ -15,6 +15,7 @@
                     <td>{{ application.user.full_name }} ({{ application.user.student_id }})</td>
                     <td>
                         <form method="post" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="update">
                             <input type="hidden" name="application_id" value="{{ application.id }}">
                             <input type="text" class="form-control form-control-sm mb-2" name="purpose" value="{{ application.purpose }}" required>
@@ -30,6 +31,7 @@
                             <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
                         </form>
                         <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this report?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="application_id" value="{{ application.id }}">
                             <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>

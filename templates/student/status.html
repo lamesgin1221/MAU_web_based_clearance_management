@@ -8,11 +8,7 @@
     <div class="card-body">
         <h3 class="mb-3">My Clearance Status</h3>
         <table class="table table-striped">
-<<<<<<< HEAD
-            <thead><tr><th>Purpose</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th>th>dormitary</th><th>Registrar</th><th>Actions</th></tr></thead>
-=======
             <thead><tr><th>Purpose</th><th>Overall</th><th>Department</th><th>Library</th><th>Finance</th><th>Dormitory</th><th>Registrar</th><th>Actions</th></tr></thead>
->>>>>>> bb6a293 (Update project with latest changes)
             <tbody>
             {% for application in applications %}
                 <tr>
@@ -32,6 +28,7 @@
                         <div class="d-flex gap-2">
                             <a class="btn btn-sm btn-outline-primary" href="{{ url_for('student_edit_application', application_id=application.id) }}">Edit</a>
                             <form method="post" action="{{ url_for('student_delete_application', application_id=application.id) }}" onsubmit="return confirm('Delete this application?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
                             </form>
                         </div>

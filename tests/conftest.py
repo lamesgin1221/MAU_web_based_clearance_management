@@ -11,6 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 TEST_DB_DIR = tempfile.mkdtemp(prefix='mau-test-db-')
 os.environ['DATABASE_URL'] = f"sqlite:///{Path(TEST_DB_DIR) / 'test.db'}"
+os.environ.setdefault('FLASK_SECRET', 'test-secret')
 
 import app as app_module  # noqa: E402  (import after DATABASE_URL is set)
 

@@ -127,8 +127,15 @@ def test_register_page_renders(client):
     assert client.get('/register').status_code == 200
 
 
-@pytest.mark.parametrize('role', ['department', 'library', 'dormitary', 'registrar'])
-def test_register_office_creates_staff_account(client, role):
+@pytest.fixture
+def logged_in_admin(make_user, login):
+    admin = make_user('office-admin@mau.edu.ng', role='admin')
+    login(admin)
+    return admin
+
+
+@pytest.mark.parametrize('role', ['department', 'library', 'finance', 'dormitory', 'registrar'])
+def test_register_office_creates_staff_account(client, logged_in_admin, role):
     response = client.post(
         '/register/office',
         data={
@@ -148,27 +155,51 @@ def test_register_office_creates_staff_account(client, role):
 
 
 @pytest.mark.parametrize('role', ['', 'student', 'admin', 'unknown'])
-def test_register_office_rejects_non_office_roles(client, role):
+def test_register_office_rejects_non_office_roles(client, logged_in_admin, role):
     response = client.post(
         '/register/office',
         data={'full_name': 'Staff', 'email': 'staff@mau.edu.ng', 'password': 'Secret123', 'role': role},
     )
 
     assert b'Please choose an office role.' in response.data
-    assert User.query.count() == 0
+    assert User.query.filter_by(email='staff@mau.edu.ng').count() == 0
 
 
-def test_register_office_requires_mandatory_fields(client):
+def test_register_office_requires_mandatory_fields(client, logged_in_admin):
     response = client.post(
         '/register/office',
         data={'full_name': '', 'email': 'staff@mau.edu.ng', 'password': 'Secret123', 'role': 'library'},
     )
 
     assert b'Please fill all required fields.' in response.data
-    assert User.query.count() == 0
+    assert User.query.filter_by(email='staff@mau.edu.ng').count() == 0
 
 
-def test_register_office_rejects_duplicate_email(client, make_user):
+def test_register_office_rejects_short_password(client, logged_in_admin):
+    response = client.post(
+        '/register/office',
+        data={'full_name': 'Staff', 'email': 'staff@mau.edu.ng', 'password': 'short', 'role': 'library'},
+    )
+
+    assert b'Password must be at least 8 characters.' in response.data
+    assert User.query.filter_by(email='staff@mau.edu.ng').count() == 0
+
+
+@pytest.mark.parametrize('method', ['get', 'post'])
+def test_register_office_is_admin_only(client, student, login, method):
+    login(student)
+
+    response = getattr(client, method)(
+        '/register/office',
+        data={'full_name': 'Staff', 'email': 'staff@mau.edu.ng', 'password': 'Secret123', 'role': 'library'},
+    )
+
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+    assert User.query.filter_by(email='staff@mau.edu.ng').count() == 0
+
+
+def test_register_office_rejects_duplicate_email(client, logged_in_admin, make_user):
     make_user('lib@mau.edu.ng', role='library')
 
     response = client.post(
@@ -180,7 +211,7 @@ def test_register_office_rejects_duplicate_email(client, make_user):
     assert User.query.filter_by(email='lib@mau.edu.ng').count() == 1
 
 
-def test_register_office_page_renders(client):
+def test_register_office_page_renders(client, logged_in_admin):
     assert client.get('/register/office').status_code == 200
 
 
@@ -243,18 +274,38 @@ def test_student_cannot_reach_staff_pages(client, student, login, path):
     assert response.headers['Location'].endswith('/login')
 
 
-def test_uploaded_file_route_serves_saved_photo(client, flask_app):
+def test_uploaded_file_route_serves_photo_to_its_owner(client, flask_app, student, login, make_application):
     upload_folder = flask_app.config['UPLOAD_FOLDER']
-    with open(f'{upload_folder}/photo.txt', 'wb') as handle:
+    with open(f'{upload_folder}/photo.png', 'wb') as handle:
         handle.write(b'photo-bytes')
+    make_application(student, photo_path='photo.png')
+    login(student)
 
-    response = client.get('/uploads/photo.txt')
+    response = client.get('/uploads/photo.png')
 
     assert response.status_code == 200
     assert response.data == b'photo-bytes'
 
 
-def test_uploaded_file_route_returns_404_for_missing_file(client):
+def test_uploaded_file_route_hides_other_students_photos(client, flask_app, student, make_user, login, make_application):
+    upload_folder = flask_app.config['UPLOAD_FOLDER']
+    with open(f'{upload_folder}/photo.png', 'wb') as handle:
+        handle.write(b'photo-bytes')
+    make_application(student, photo_path='photo.png')
+    login(make_user('other@mau.edu.ng', role='student'))
+
+    assert client.get('/uploads/photo.png').status_code == 403
+
+
+def test_uploaded_file_route_requires_login(client):
+    response = client.get('/uploads/photo.png')
+
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+
+
+def test_uploaded_file_route_returns_404_for_missing_file(client, make_user, login):
+    login(make_user('registrar@mau.edu.ng', role='registrar'))
     assert client.get('/uploads/missing.png').status_code == 404
 
 

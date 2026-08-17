@@ -50,8 +50,24 @@ def test_apply_stores_uploaded_photo(client):
 
     assert response.status_code == 302
     application = ClearanceApplication.query.one()
-    assert application.photo_path.endswith('_me.png')
+    assert application.photo_path.endswith('.png')
     assert (app_module.UPLOAD_FOLDER / application.photo_path).exists()
+
+
+def test_apply_rejects_non_image_photo(client):
+    response = client.post(
+        '/student/apply',
+        data={
+            'purpose': 'Graduation',
+            'academic_year': '2024/2025',
+            'photo': (io.BytesIO(b'<script>alert(1)</script>'), 'evil.html'),
+        },
+        content_type='multipart/form-data',
+        follow_redirects=True,
+    )
+
+    assert b'Photo must be an image file' in response.data
+    assert ClearanceApplication.query.count() == 0
 
 
 @pytest.mark.parametrize('missing', ['purpose', 'academic_year'])
@@ -108,7 +124,8 @@ def test_edit_replaces_photo_and_removes_the_old_file(client, logged_in_student,
     )
 
     db.session.refresh(application)
-    assert application.photo_path.endswith('_new.png')
+    assert application.photo_path.endswith('.png')
+    assert application.photo_path != 'old.png'
     assert not old_photo.exists()
 
 
@@ -288,7 +305,7 @@ def test_profile_rejects_too_short_password(client, logged_in_student):
         follow_redirects=True,
     )
 
-    assert b'Password must be at least 6 characters.' in response.data
+    assert b'Password must be at least 8 characters.' in response.data
     db.session.refresh(logged_in_student)
     assert logged_in_student.check_password('Passw0rd!')
 

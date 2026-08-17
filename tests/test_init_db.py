@@ -6,17 +6,33 @@ import init_db as init_db_module
 from app import ClearanceApplication, User, db
 
 
-def test_init_db_creates_default_admin(flask_app, capsys):
+@pytest.fixture
+def admin_env(monkeypatch):
+    monkeypatch.setenv('ADMIN_EMAIL', 'admin@mau.edu.ng')
+    monkeypatch.setenv('ADMIN_PASSWORD', 'Admin@12345')
+
+
+def test_init_db_creates_admin_from_environment(flask_app, admin_env, capsys):
     init_db_module.init_db()
 
     admin = User.query.filter_by(email='admin@mau.edu.ng').one()
     assert admin.role == 'admin'
     assert admin.student_id == 'ADM001'
-    assert admin.check_password('Admin@123')
+    assert admin.check_password('Admin@12345')
     assert 'Admin user created' in capsys.readouterr().out
 
 
-def test_init_db_is_idempotent(flask_app, capsys):
+def test_init_db_skips_admin_without_credentials(flask_app, monkeypatch, capsys):
+    monkeypatch.delenv('ADMIN_EMAIL', raising=False)
+    monkeypatch.delenv('ADMIN_PASSWORD', raising=False)
+
+    init_db_module.init_db()
+
+    assert User.query.filter_by(role='admin').count() == 0
+    assert 'Skipping admin creation' in capsys.readouterr().out
+
+
+def test_init_db_is_idempotent(flask_app, admin_env, capsys):
     init_db_module.init_db()
     capsys.readouterr()
 
@@ -26,7 +42,7 @@ def test_init_db_is_idempotent(flask_app, capsys):
     assert 'Admin user already exists' in capsys.readouterr().out
 
 
-def test_reset_db_drops_data_when_confirmed(flask_app, student, make_application, monkeypatch):
+def test_reset_db_drops_data_when_confirmed(flask_app, admin_env, student, make_application, monkeypatch):
     make_application(student)
     monkeypatch.setattr(builtins, 'input', lambda *args: 'YES')
 
