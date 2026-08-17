@@ -79,9 +79,7 @@ python app.py
 
 Then visit: `http://localhost:5000`
 
-Login with:
-- Email: `admin@mau.edu.ng`
-- Password: `Admin@123`
+Login with the admin account you bootstrapped via the `ADMIN_EMAIL` / `ADMIN_PASSWORD` environment variables.
 
 ### Full Documentation
 See [README.md](README.md) and [QUICKSTART.md](QUICKSTART.md)

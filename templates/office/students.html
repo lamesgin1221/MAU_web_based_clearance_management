@@ -18,6 +18,7 @@
                     <td><span class="badge bg-info">STU-{{ student.id }}</span></td>
                     <td>
                         <form method="post" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="update">
                             <input type="hidden" name="student_id" value="{{ student.id }}">
                             <input type="text" class="form-control form-control-sm mb-2" name="full_name" value="{{ student.full_name }}" required>
@@ -29,6 +30,7 @@
                         <button class="btn btn-sm btn-outline-primary" type="submit">Update</button>
                         </form>
                         <form method="post" class="d-inline ms-2" onsubmit="return confirm('Delete this student?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="student_id" value="{{ student.id }}">
                             <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>

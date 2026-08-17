@@ -8,6 +8,7 @@
                 <h2 class="card-title mb-3">Register Office Account</h2>
                 <p class="text-muted mb-3">Use this form for department, library, dormitary, or registrar staff.</p>
                 <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Full Name</label>
@@ -27,7 +28,8 @@
                                 <option value="">Select role</option>
                                 <option value="department">Department</option>
                                 <option value="library">Library</option>
-                                <option value="dormitary">Dormitary</option>
+                                <option value="finance">Finance</option>
+                                <option value="dormitory">Dormitory</option>
                                 <option value="registrar">Registrar</option>
                             </select>
                         </div>

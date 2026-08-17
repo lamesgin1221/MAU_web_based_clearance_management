@@ -8,6 +8,7 @@
     <div class="card-body">
         <h3 class="mb-3">Apply for Clearance</h3>
         <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label class="form-label">Purpose</label>
                 <input type="text" class="form-control" name="purpose" required>

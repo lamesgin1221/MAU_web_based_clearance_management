@@ -20,27 +20,26 @@ def init_db():
         db.create_all()
         print("✓ Database tables created")
 
-        # Create default admin if it doesn't exist
-        admin = User.query.filter_by(email='admin@mau.edu.ng').first()
-        if not admin:
-            print("Creating default admin user...")
+        # Create the admin account from the environment, if configured
+        admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+        admin_password = os.environ.get('ADMIN_PASSWORD', '')
+        if not admin_email or not admin_password:
+            print("! Skipping admin creation: set ADMIN_EMAIL and ADMIN_PASSWORD to create one")
+        elif User.query.filter_by(email=admin_email).first():
+            print("✓ Admin user already exists")
+        else:
+            print("Creating admin user...")
             admin = User(
-                full_name='System Administrator',
-                email='admin@mau.edu.ng',
-                password_hash=generate_password_hash('Admin@123'),
+                full_name=os.environ.get('ADMIN_NAME', 'System Administrator'),
+                email=admin_email,
+                password_hash=generate_password_hash(admin_password),
                 role='admin',
                 student_id='ADM001',
                 department='Administration',
-                phone='07000000000',
             )
             db.session.add(admin)
             db.session.commit()
-            print("✓ Admin user created")
-            print("  Email: admin@mau.edu.ng")
-            print("  Password: Admin@123")
-            print("  ⚠ IMPORTANT: Change this password in production!")
-        else:
-            print("✓ Admin user already exists")
+            print(f"✓ Admin user created: {admin_email}")
 
         print("\n✓ Database initialization complete!")
 

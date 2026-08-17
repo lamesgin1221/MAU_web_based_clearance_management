@@ -10,6 +10,7 @@
             <div class="card-body">
                 <h3 class="mb-4">Update My Profile</h3>
                 <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">Full Name</label>
                         <input type="text" class="form-control" name="full_name" value="{{ current_user.full_name }}" required>
@@ -35,6 +36,7 @@
             <div class="card-body">
                 <h3 class="mb-4">Change Password</h3>
                 <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">Current Password</label>
                         <input type="password" class="form-control" name="current_password" placeholder="Enter your current password">

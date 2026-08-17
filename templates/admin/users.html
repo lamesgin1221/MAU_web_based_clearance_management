@@ -8,6 +8,7 @@
     <div class="card-body">
         <h5>Create Office Staff Account</h5>
         <form method="post" class="row g-3 mt-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="create">
             <div class="col-md-3"><input type="text" class="form-control" name="full_name" placeholder="Full Name" required></div>
             <div class="col-md-3"><input type="email" class="form-control" name="email" placeholder="Email" required></div>
@@ -41,6 +42,7 @@
                     <td>
                         {% if user.role != 'admin' %}
                             <form method="post" class="d-inline" onsubmit="return confirm('Delete this staff member?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>

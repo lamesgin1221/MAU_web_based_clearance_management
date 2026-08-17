@@ -1,29 +1,56 @@
 import os
 import base64
+import secrets
 import smtplib
 from pathlib import Path
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from urllib import parse, request as urlrequest, error as urlerror
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory
+from dotenv import load_dotenv
+from flask import Flask, abort, render_template, request, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / 'data.db'
 UPLOAD_FOLDER = BASE_DIR / 'uploads'
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
+TRUE_VALUES = {'1', 'true', 'yes', 'on'}
+DEBUG = os.environ.get('FLASK_DEBUG', '0').strip().lower() in TRUE_VALUES
+
+
+def load_secret_key():
+    key = os.environ.get('FLASK_SECRET', '').strip()
+    if key:
+        return key
+    if not DEBUG:
+        raise RuntimeError(
+            'FLASK_SECRET is not set. Generate one with '
+            '`python -c "import secrets; print(secrets.token_urlsafe(32))"` and export it before starting the app.'
+        )
+    return secrets.token_urlsafe(32)
+
+
 app = Flask(__name__, static_folder='static', template_folder='templates')
-app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'replace-this-with-a-secret')
+app.config['SECRET_KEY'] = load_secret_key()
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = not DEBUG
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 
 db = SQLAlchemy(app)
+csrf = CSRFProtect(app)
 
 ROLE_LABELS = {
     'student': 'Student',
@@ -34,6 +61,12 @@ ROLE_LABELS = {
     'registrar': 'Registrar',
     'admin': 'Admin',
 }
+
+OFFICE_ROLES = {'department', 'library', 'finance', 'dormitory', 'registrar'}
+APPLICATION_STATUSES = {'pending', 'approved', 'rejected'}
+DECISIONS = {'approved', 'rejected'}
+ALLOWED_PHOTO_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MIN_PASSWORD_LENGTH = 8
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -90,15 +123,16 @@ with app.app_context():
     if 'photo_path' not in columns:
         db.session.execute(db.text('ALTER TABLE clearance_application ADD COLUMN photo_path VARCHAR(255)'))
         db.session.commit()
-    if not User.query.filter_by(email='admin@mau.edu.ng').first():
+    admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
+    admin_password = os.environ.get('ADMIN_PASSWORD', '')
+    if admin_email and admin_password and not User.query.filter_by(email=admin_email).first():
         admin = User(
-            full_name='System Administrator',
-            email='admin@mau.edu.ng',
-            password_hash=generate_password_hash('Admin@123'),
+            full_name=os.environ.get('ADMIN_NAME', 'System Administrator'),
+            email=admin_email,
+            password_hash=generate_password_hash(admin_password),
             role='admin',
             student_id='ADM001',
             department='Administration',
-            phone='07000000000',
         )
         db.session.add(admin)
         db.session.commit()
@@ -201,6 +235,8 @@ def register():
         department = request.form.get('department', '').strip()
         if not full_name or not email or not password:
             flash('Please fill all required fields.', 'danger')
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters.', 'danger')
         elif User.query.filter_by(email=email).first():
             flash('An account with this email already exists.', 'danger')
         else:
@@ -220,6 +256,7 @@ def register():
     return render_template('register.html')
 
 @app.route('/register/office', methods=['GET', 'POST'])
+@roles_required('admin')
 def register_office():
     if request.method == 'POST':
         full_name = request.form.get('full_name', '').strip()
@@ -227,10 +264,12 @@ def register_office():
         password = request.form.get('password', '')
         phone = request.form.get('phone', '').strip()
         role = request.form.get('role', '').strip()
-        if role not in {'department', 'library', 'dormitary', 'registrar'}:
+        if role not in OFFICE_ROLES:
             flash('Please choose an office role.', 'danger')
         elif not full_name or not email or not password:
             flash('Please fill all required fields.', 'danger')
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters.', 'danger')
         elif User.query.filter_by(email=email).first():
             flash('An account with this email already exists.', 'danger')
         else:
@@ -260,16 +299,23 @@ def student_dashboard():
     applications = ClearanceApplication.query.filter_by(user_id=user.id).order_by(ClearanceApplication.submitted_at.desc()).limit(5).all()
     return render_template('student/dashboard.html', applications=applications)
 
+class PhotoUploadError(Exception):
+    pass
+
+
 def save_uploaded_photo():
-    photo_path = None
-    if 'photo' in request.files:
-        file = request.files['photo']
-        if file and file.filename:
-            filename = secure_filename(file.filename)
-            unique_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-            file.save(UPLOAD_FOLDER / unique_name)
-            photo_path = unique_name
-    return photo_path
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return None
+    filename = secure_filename(file.filename)
+    extension = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if extension not in ALLOWED_PHOTO_EXTENSIONS:
+        raise PhotoUploadError(
+            'Photo must be an image file (' + ', '.join(sorted(ALLOWED_PHOTO_EXTENSIONS)) + ').'
+        )
+    unique_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(8)}.{extension}"
+    file.save(UPLOAD_FOLDER / unique_name)
+    return unique_name
 
 @app.route('/student/apply', methods=['GET', 'POST'])
 @roles_required('student')
@@ -277,7 +323,11 @@ def student_apply():
     if request.method == 'POST':
         purpose = request.form.get('purpose', '').strip()
         academic_year = request.form.get('academic_year', '').strip()
-        photo_path = save_uploaded_photo()
+        try:
+            photo_path = save_uploaded_photo()
+        except PhotoUploadError as error:
+            flash(str(error), 'danger')
+            return redirect(url_for('student_apply'))
 
         if not purpose or not academic_year:
             flash('Please complete the form.', 'danger')
@@ -312,7 +362,11 @@ def student_edit_application(application_id):
             flash('This application cannot be edited after it has started moving through the approval stages.', 'danger')
             return redirect(url_for('student_status'))
 
-        new_photo_path = save_uploaded_photo()
+        try:
+            new_photo_path = save_uploaded_photo()
+        except PhotoUploadError as error:
+            flash(str(error), 'danger')
+            return redirect(url_for('student_edit_application', application_id=application.id))
         if new_photo_path:
             if application.photo_path and application.photo_path != new_photo_path:
                 old_photo = UPLOAD_FOLDER / application.photo_path
@@ -341,7 +395,13 @@ def student_delete_application(application_id):
     return redirect(url_for('student_status'))
 
 @app.route('/uploads/<filename>')
+@login_required
 def uploaded_file(filename):
+    user = current_user()
+    if user.role == 'student':
+        owns_photo = ClearanceApplication.query.filter_by(user_id=user.id, photo_path=filename).first()
+        if not owns_photo:
+            abort(403)
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/assets/<path:filename>')
@@ -381,8 +441,8 @@ def student_profile():
             if new_password != confirm_password:
                 flash('New passwords do not match.', 'danger')
                 return redirect(url_for('student_profile'))
-            if len(new_password) < 6:
-                flash('Password must be at least 6 characters.', 'danger')
+            if len(new_password) < MIN_PASSWORD_LENGTH:
+                flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters.', 'danger')
                 return redirect(url_for('student_profile'))
             user.password_hash = generate_password_hash(new_password)
             flash('Password changed successfully.', 'success')
@@ -461,7 +521,11 @@ def admin_applications():
             if application:
                 application.purpose = request.form.get('purpose', '').strip() or application.purpose
                 application.academic_year = request.form.get('academic_year', '').strip() or application.academic_year
-                application.status = request.form.get('status', 'pending').strip() or application.status
+                status = request.form.get('status', '').strip()
+                if status and status not in APPLICATION_STATUSES:
+                    flash('Invalid application status.', 'danger')
+                    return redirect(url_for('admin_applications'))
+                application.status = status or application.status
                 db.session.commit()
                 flash('Application updated successfully.', 'success')
             else:
@@ -490,7 +554,11 @@ def admin_reports():
             if application:
                 application.purpose = request.form.get('purpose', '').strip() or application.purpose
                 application.academic_year = request.form.get('academic_year', '').strip() or application.academic_year
-                application.status = request.form.get('status', 'pending').strip() or application.status
+                status = request.form.get('status', '').strip()
+                if status and status not in APPLICATION_STATUSES:
+                    flash('Invalid application status.', 'danger')
+                    return redirect(url_for('admin_reports'))
+                application.status = status or application.status
                 db.session.commit()
                 flash('Report updated successfully.', 'success')
             else:
@@ -521,9 +589,13 @@ def admin_users():
             full_name = request.form.get('full_name', '').strip()
             email = request.form.get('email', '').strip()
             password = request.form.get('password', '')
-            role = request.form.get('role', 'department')
-            if not full_name or not email or not password:
+            role = request.form.get('role', 'department').strip()
+            if role not in OFFICE_ROLES:
+                flash('Please choose a valid staff role.', 'danger')
+            elif not full_name or not email or not password:
                 flash('Please fill all fields.', 'danger')
+            elif len(password) < MIN_PASSWORD_LENGTH:
+                flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters.', 'danger')
             elif User.query.filter_by(email=email).first():
                 flash('A user with that email already exists.', 'danger')
             else:
@@ -601,8 +673,8 @@ def office_profile():
             if new_password != confirm_password:
                 flash('New passwords do not match.', 'danger')
                 return redirect(url_for('office_profile'))
-            if len(new_password) < 6:
-                flash('Password must be at least 6 characters.', 'danger')
+            if len(new_password) < MIN_PASSWORD_LENGTH:
+                flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters.', 'danger')
                 return redirect(url_for('office_profile'))
             user.password_hash = generate_password_hash(new_password)
             flash('Password changed successfully.', 'success')
@@ -685,6 +757,17 @@ def send_notification_to_student(user, message):
     return send_sms_to_student(user, message)
 
 
+def record_decision(field, endpoint, success_message):
+    application_id = request.form.get('application_id', type=int)
+    decision = request.form.get('decision', '').strip()
+    if not application_id or decision not in DECISIONS:
+        flash('Invalid approval request.', 'danger')
+        return redirect(url_for(endpoint))
+    update_approval(application_id, field, decision)
+    flash(success_message, 'success')
+    return redirect(url_for(endpoint))
+
+
 def update_approval(application_id, field, decision):
     application = ClearanceApplication.query.get_or_404(application_id)
     setattr(application, field, decision)
@@ -704,9 +787,7 @@ def update_approval(application_id, field, decision):
 @roles_required('department')
 def department_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'department_status', request.form['decision'])
-        flash('Department decision recorded.', 'success')
-        return redirect(url_for('department_approve'))
+        return record_decision('department_status', 'department_approve', 'Department decision recorded.')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('department/approve.html', applications=applications)
 
@@ -714,9 +795,7 @@ def department_approve():
 @roles_required('library')
 def library_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'library_status', request.form['decision'])
-        flash('Library decision recorded.', 'success')
-        return redirect(url_for('library_approve'))
+        return record_decision('library_status', 'library_approve', 'Library decision recorded.')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('library/approve.html', applications=applications)
 
@@ -724,9 +803,7 @@ def library_approve():
 @roles_required('finance')
 def finance_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'finance_status', request.form['decision'])
-        flash('Finance decision recorded.', 'success')
-        return redirect(url_for('finance_approve'))
+        return record_decision('finance_status', 'finance_approve', 'Finance decision recorded.')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('finance/approve.html', applications=applications)
 
@@ -734,9 +811,7 @@ def finance_approve():
 @roles_required('dormitory')
 def dormitary_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'dormitory_status', request.form['decision'])
-        flash('Dormitory decision recorded.', 'success')
-        return redirect(url_for('dormitary_approve'))
+        return record_decision('dormitory_status', 'dormitary_approve', 'Dormitory decision recorded.')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('dormitary/approve.html', applications=applications)
 
@@ -744,9 +819,7 @@ def dormitary_approve():
 @roles_required('registrar')
 def registrar_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'registrar_status', request.form['decision'])
-        flash('Registrar decision recorded.', 'success')
-        return redirect(url_for('registrar_approve'))
+        return record_decision('registrar_status', 'registrar_approve', 'Registrar decision recorded.')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('registrar/approve.html', applications=applications)
 
@@ -757,7 +830,10 @@ def registrar_certificate():
     application = None
     if application_id:
         application = ClearanceApplication.query.get(application_id)
+        user = current_user()
+        if application and user.role == 'student' and application.user_id != user.id:
+            abort(403)
     return render_template('registrar/certificate.html', application=application)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=DEBUG)
