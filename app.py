@@ -1,5 +1,6 @@
 import os
 import base64
+import logging
 import smtplib
 from pathlib import Path
 from functools import wraps
@@ -7,8 +8,10 @@ from datetime import datetime
 from email.message import EmailMessage
 from urllib import parse, request as urlrequest, error as urlerror
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_from_directory
+from flask import Flask, abort, render_template, request, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -16,14 +19,53 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / 'data.db'
 UPLOAD_FOLDER = BASE_DIR / 'uploads'
 UPLOAD_FOLDER.mkdir(exist_ok=True)
+ALLOWED_PHOTO_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+logging.basicConfig(
+    level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+)
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'replace-this-with-a-secret')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES
 
 db = SQLAlchemy(app)
+
+
+class PhotoUploadError(Exception):
+    """Raised when an uploaded photo cannot be validated or stored."""
+
+
+def commit_session(failure_message='Something went wrong while saving your changes. Please try again.'):
+    """Commit the session, rolling back and surfacing the failure to the user.
+
+    Returns True on success, False when the commit failed.
+    """
+    try:
+        db.session.commit()
+        return True
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception('Database commit failed')
+        flash(failure_message, 'danger')
+        return False
+
+
+def delete_photo_file(photo_name):
+    """Best-effort photo removal; failures are logged instead of being hidden."""
+    if not photo_name:
+        return False
+    try:
+        (UPLOAD_FOLDER / photo_name).unlink(missing_ok=True)
+        return True
+    except OSError:
+        app.logger.warning('Could not delete uploaded photo %s', photo_name, exc_info=True)
+        return False
 
 ROLE_LABELS = {
     'student': 'Student',
@@ -34,6 +76,10 @@ ROLE_LABELS = {
     'registrar': 'Registrar',
     'admin': 'Admin',
 }
+
+STAFF_ROLES = {'department', 'library', 'finance', 'dormitory', 'registrar'}
+APPLICATION_STATUSES = {'pending', 'approved', 'rejected'}
+APPROVAL_DECISIONS = {'approved', 'rejected'}
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -83,35 +129,55 @@ class ClearanceApplication(db.Model):
         else:
             self.status = 'pending'
 
+def bootstrap_database():
+    """Create tables, apply the photo_path migration and seed the admin account.
+
+    Any database failure here is logged and re-raised: starting the app against a
+    half-migrated database would only produce confusing failures later on.
+    """
+    try:
+        db.create_all()
+        table_info = db.session.execute(db.text('PRAGMA table_info(clearance_application)')).fetchall()
+        columns = [column[1] for column in table_info]
+        if 'photo_path' not in columns:
+            db.session.execute(db.text('ALTER TABLE clearance_application ADD COLUMN photo_path VARCHAR(255)'))
+            db.session.commit()
+        if not User.query.filter_by(email='admin@mau.edu.ng').first():
+            admin = User(
+                full_name='System Administrator',
+                email='admin@mau.edu.ng',
+                password_hash=generate_password_hash('Admin@123'),
+                role='admin',
+                student_id='ADM001',
+                department='Administration',
+                phone='07000000000',
+            )
+            db.session.add(admin)
+            db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception('Database initialisation failed')
+        raise
+
+
 with app.app_context():
-    db.create_all()
-    table_info = db.session.execute(db.text('PRAGMA table_info(clearance_application)')).fetchall()
-    columns = [column[1] for column in table_info]
-    if 'photo_path' not in columns:
-        db.session.execute(db.text('ALTER TABLE clearance_application ADD COLUMN photo_path VARCHAR(255)'))
-        db.session.commit()
-    if not User.query.filter_by(email='admin@mau.edu.ng').first():
-        admin = User(
-            full_name='System Administrator',
-            email='admin@mau.edu.ng',
-            password_hash=generate_password_hash('Admin@123'),
-            role='admin',
-            student_id='ADM001',
-            department='Administration',
-            phone='07000000000',
-        )
-        db.session.add(admin)
-        db.session.commit()
+    bootstrap_database()
 
 def current_user():
     if 'user_id' not in session:
         return None
-    return User.query.get(session['user_id'])
+    try:
+        return db.session.get(User, session['user_id'])
+    except SQLAlchemyError:
+        app.logger.exception('Could not load the logged in user %s', session.get('user_id'))
+        raise
 
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if 'user_id' not in session:
+        if current_user() is None:
+            session.clear()
+            flash('Please log in to continue.', 'warning')
             return redirect(url_for('login'))
         return view(*args, **kwargs)
     return wrapped
@@ -121,8 +187,14 @@ def roles_required(*roles):
         @wraps(view)
         def wrapped(*args, **kwargs):
             user = current_user()
-            if not user or user.role not in roles:
+            if user is None:
+                session.clear()
+                flash('Please log in to continue.', 'warning')
                 return redirect(url_for('login'))
+            if user.role not in roles:
+                app.logger.info('User %s with role %s was denied access to %s', user.id, user.role, request.path)
+                flash('You do not have permission to open that page.', 'danger')
+                return redirect(url_for(role_dashboard(user.role)))
             return view(*args, **kwargs)
         return wrapped
     return decorator
@@ -214,9 +286,9 @@ def register():
                 phone=phone,
             )
             db.session.add(user)
-            db.session.commit()
-            flash('Student account created successfully. You can now log in.', 'success')
-            return redirect(url_for('login'))
+            if commit_session('Could not create your account. Please try again.'):
+                flash('Student account created successfully. You can now log in.', 'success')
+                return redirect(url_for('login'))
     return render_template('register.html')
 
 @app.route('/register/office', methods=['GET', 'POST'])
@@ -227,7 +299,8 @@ def register_office():
         password = request.form.get('password', '')
         phone = request.form.get('phone', '').strip()
         role = request.form.get('role', '').strip()
-        if role not in {'department', 'library', 'dormitary', 'registrar'}:
+        role = {'dormitary': 'dormitory'}.get(role, role)
+        if role not in STAFF_ROLES:
             flash('Please choose an office role.', 'danger')
         elif not full_name or not email or not password:
             flash('Please fill all required fields.', 'danger')
@@ -243,9 +316,9 @@ def register_office():
                 phone=phone,
             )
             db.session.add(user)
-            db.session.commit()
-            flash('Office account created successfully. You can now log in.', 'success')
-            return redirect(url_for('login'))
+            if commit_session('Could not create the office account. Please try again.'):
+                flash('Office account created successfully. You can now log in.', 'success')
+                return redirect(url_for('login'))
     return render_template('register_office.html')
 
 @app.route('/logout')
@@ -261,15 +334,29 @@ def student_dashboard():
     return render_template('student/dashboard.html', applications=applications)
 
 def save_uploaded_photo():
-    photo_path = None
-    if 'photo' in request.files:
-        file = request.files['photo']
-        if file and file.filename:
-            filename = secure_filename(file.filename)
-            unique_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-            file.save(UPLOAD_FOLDER / unique_name)
-            photo_path = unique_name
-    return photo_path
+    """Store the uploaded photo and return its file name, or None when none was sent.
+
+    Raises PhotoUploadError when the upload is unusable or cannot be written; callers
+    are expected to report that to the user instead of losing the failure.
+    """
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return None
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        raise PhotoUploadError('The uploaded photo has an unsupported file name.')
+    if Path(filename).suffix.lower() not in ALLOWED_PHOTO_EXTENSIONS:
+        allowed = ', '.join(sorted(ALLOWED_PHOTO_EXTENSIONS))
+        raise PhotoUploadError(f'Unsupported photo type. Allowed types: {allowed}.')
+
+    unique_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+    try:
+        file.save(UPLOAD_FOLDER / unique_name)
+    except OSError as exc:
+        app.logger.exception('Could not store uploaded photo %s', unique_name)
+        raise PhotoUploadError('The photo could not be saved. Please try again.') from exc
+    return unique_name
 
 @app.route('/student/apply', methods=['GET', 'POST'])
 @roles_required('student')
@@ -277,21 +364,29 @@ def student_apply():
     if request.method == 'POST':
         purpose = request.form.get('purpose', '').strip()
         academic_year = request.form.get('academic_year', '').strip()
-        photo_path = save_uploaded_photo()
 
         if not purpose or not academic_year:
             flash('Please complete the form.', 'danger')
-        else:
-            application = ClearanceApplication(
-                user_id=current_user().id,
-                purpose=purpose,
-                academic_year=academic_year,
-                photo_path=photo_path,
-            )
-            db.session.add(application)
-            db.session.commit()
-            flash('Clearance application submitted successfully.', 'success')
-            return redirect(url_for('student_status'))
+            return render_template('student/apply_clearance.html')
+
+        try:
+            photo_path = save_uploaded_photo()
+        except PhotoUploadError as exc:
+            flash(str(exc), 'danger')
+            return render_template('student/apply_clearance.html')
+
+        application = ClearanceApplication(
+            user_id=current_user().id,
+            purpose=purpose,
+            academic_year=academic_year,
+            photo_path=photo_path,
+        )
+        db.session.add(application)
+        if not commit_session('Could not submit your application. Please try again.'):
+            delete_photo_file(photo_path)
+            return render_template('student/apply_clearance.html')
+        flash('Clearance application submitted successfully.', 'success')
+        return redirect(url_for('student_status'))
     return render_template('student/apply_clearance.html')
 
 @app.route('/student/application/<int:application_id>/edit', methods=['GET', 'POST'])
@@ -312,17 +407,24 @@ def student_edit_application(application_id):
             flash('This application cannot be edited after it has started moving through the approval stages.', 'danger')
             return redirect(url_for('student_status'))
 
-        new_photo_path = save_uploaded_photo()
+        try:
+            new_photo_path = save_uploaded_photo()
+        except PhotoUploadError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('student_edit_application', application_id=application.id))
+
+        previous_photo_path = application.photo_path
         if new_photo_path:
-            if application.photo_path and application.photo_path != new_photo_path:
-                old_photo = UPLOAD_FOLDER / application.photo_path
-                if old_photo.exists():
-                    old_photo.unlink()
             application.photo_path = new_photo_path
 
         application.purpose = purpose
         application.academic_year = academic_year
-        db.session.commit()
+        if not commit_session('Could not update your application. Please try again.'):
+            delete_photo_file(new_photo_path)
+            return redirect(url_for('student_edit_application', application_id=application.id))
+
+        if new_photo_path and previous_photo_path and previous_photo_path != new_photo_path:
+            delete_photo_file(previous_photo_path)
         flash('Clearance application updated successfully.', 'success')
         return redirect(url_for('student_status'))
     return render_template('student/edit_application.html', application=application)
@@ -331,12 +433,11 @@ def student_edit_application(application_id):
 @roles_required('student')
 def student_delete_application(application_id):
     application = ClearanceApplication.query.filter_by(id=application_id, user_id=current_user().id).first_or_404()
-    if application.photo_path:
-        photo_file = UPLOAD_FOLDER / application.photo_path
-        if photo_file.exists():
-            photo_file.unlink()
+    photo_path = application.photo_path
     db.session.delete(application)
-    db.session.commit()
+    if not commit_session('Could not delete your application. Please try again.'):
+        return redirect(url_for('student_status'))
+    delete_photo_file(photo_path)
     flash('Clearance application deleted successfully.', 'success')
     return redirect(url_for('student_status'))
 
@@ -366,7 +467,8 @@ def student_profile():
         current_password = request.form.get('current_password', '')
         new_password = request.form.get('new_password', '')
         confirm_password = request.form.get('confirm_password', '')
-        
+        password_changed = False
+
         # Validate email uniqueness if changed
         if email and email != user.email:
             if User.query.filter_by(email=email).first():
@@ -385,7 +487,7 @@ def student_profile():
                 flash('Password must be at least 6 characters.', 'danger')
                 return redirect(url_for('student_profile'))
             user.password_hash = generate_password_hash(new_password)
-            flash('Password changed successfully.', 'success')
+            password_changed = True
         
         # Update other fields
         if full_name:
@@ -396,9 +498,11 @@ def student_profile():
             user.phone = phone
         if department:
             user.department = department
-        
-        db.session.commit()
-        flash('Profile updated successfully.', 'success')
+
+        if commit_session('Could not update your profile. Please try again.'):
+            if password_changed:
+                flash('Password changed successfully.', 'success')
+            flash('Profile updated successfully.', 'success')
         return redirect(url_for('student_profile'))
     return render_template('student/profile.html')
 
@@ -422,8 +526,8 @@ def admin_students():
             student = User.query.filter_by(id=student_id, role='student').first()
             if student:
                 db.session.delete(student)
-                db.session.commit()
-                flash('Student deleted successfully.', 'success')
+                if commit_session('Could not delete the student. Please try again.'):
+                    flash('Student deleted successfully.', 'success')
             else:
                 flash('Student not found.', 'danger')
         elif action == 'update' and student_id:
@@ -433,10 +537,13 @@ def admin_students():
                 student.email = request.form.get('email', '').strip() or student.email
                 student.student_id = request.form.get('student_id_value', '').strip() or student.student_id
                 student.department = request.form.get('department', '').strip() or student.department
-                db.session.commit()
-                flash('Student updated successfully.', 'success')
+                if commit_session('Could not update the student. Please try again.'):
+                    flash('Student updated successfully.', 'success')
             else:
                 flash('Student not found.', 'danger')
+        else:
+            app.logger.warning('Unsupported admin_students action %r for student %r', action, student_id)
+            flash('That action could not be completed.', 'danger')
         return redirect(url_for('admin_students'))
 
     students = User.query.filter_by(role='student').order_by(User.created_at.desc()).all()
@@ -449,23 +556,32 @@ def admin_applications():
         action = request.form.get('action', '')
         application_id = request.form.get('application_id', type=int)
         if action == 'delete' and application_id:
-            application = ClearanceApplication.query.get(application_id)
+            application = db.session.get(ClearanceApplication, application_id)
             if application:
+                photo_path = application.photo_path
                 db.session.delete(application)
-                db.session.commit()
-                flash('Application deleted successfully.', 'success')
+                if commit_session('Could not delete the application. Please try again.'):
+                    delete_photo_file(photo_path)
+                    flash('Application deleted successfully.', 'success')
             else:
                 flash('Application not found.', 'danger')
         elif action == 'update' and application_id:
-            application = ClearanceApplication.query.get(application_id)
+            application = db.session.get(ClearanceApplication, application_id)
             if application:
+                status = request.form.get('status', '').strip()
+                if status and status not in APPLICATION_STATUSES:
+                    flash('Unknown application status.', 'danger')
+                    return redirect(url_for('admin_applications'))
                 application.purpose = request.form.get('purpose', '').strip() or application.purpose
                 application.academic_year = request.form.get('academic_year', '').strip() or application.academic_year
-                application.status = request.form.get('status', 'pending').strip() or application.status
-                db.session.commit()
-                flash('Application updated successfully.', 'success')
+                application.status = status or application.status
+                if commit_session('Could not update the application. Please try again.'):
+                    flash('Application updated successfully.', 'success')
             else:
                 flash('Application not found.', 'danger')
+        else:
+            app.logger.warning('Unsupported admin_applications action %r for application %r', action, application_id)
+            flash('That action could not be completed.', 'danger')
         return redirect(url_for('admin_applications'))
 
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
@@ -478,23 +594,32 @@ def admin_reports():
         action = request.form.get('action', '')
         application_id = request.form.get('application_id', type=int)
         if action == 'delete' and application_id:
-            application = ClearanceApplication.query.get(application_id)
+            application = db.session.get(ClearanceApplication, application_id)
             if application:
+                photo_path = application.photo_path
                 db.session.delete(application)
-                db.session.commit()
-                flash('Report deleted successfully.', 'success')
+                if commit_session('Could not delete the report. Please try again.'):
+                    delete_photo_file(photo_path)
+                    flash('Report deleted successfully.', 'success')
             else:
                 flash('Report not found.', 'danger')
         elif action == 'update' and application_id:
-            application = ClearanceApplication.query.get(application_id)
+            application = db.session.get(ClearanceApplication, application_id)
             if application:
+                status = request.form.get('status', '').strip()
+                if status and status not in APPLICATION_STATUSES:
+                    flash('Unknown application status.', 'danger')
+                    return redirect(url_for('admin_reports'))
                 application.purpose = request.form.get('purpose', '').strip() or application.purpose
                 application.academic_year = request.form.get('academic_year', '').strip() or application.academic_year
-                application.status = request.form.get('status', 'pending').strip() or application.status
-                db.session.commit()
-                flash('Report updated successfully.', 'success')
+                application.status = status or application.status
+                if commit_session('Could not update the report. Please try again.'):
+                    flash('Report updated successfully.', 'success')
             else:
                 flash('Report not found.', 'danger')
+        else:
+            app.logger.warning('Unsupported admin_reports action %r for application %r', action, application_id)
+            flash('That action could not be completed.', 'danger')
         return redirect(url_for('admin_reports'))
 
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
@@ -512,8 +637,8 @@ def admin_users():
             user = User.query.filter_by(id=user_id).first()
             if user and user.role != 'student' and user.role != 'admin':
                 db.session.delete(user)
-                db.session.commit()
-                flash('Staff member deleted successfully.', 'success')
+                if commit_session('Could not delete the staff member. Please try again.'):
+                    flash('Staff member deleted successfully.', 'success')
             else:
                 flash('Cannot delete this user.', 'danger')
         # Admin creates new staff
@@ -521,9 +646,11 @@ def admin_users():
             full_name = request.form.get('full_name', '').strip()
             email = request.form.get('email', '').strip()
             password = request.form.get('password', '')
-            role = request.form.get('role', 'department')
+            role = request.form.get('role', 'department').strip()
             if not full_name or not email or not password:
                 flash('Please fill all fields.', 'danger')
+            elif role not in STAFF_ROLES:
+                flash('Please choose a valid staff role.', 'danger')
             elif User.query.filter_by(email=email).first():
                 flash('A user with that email already exists.', 'danger')
             else:
@@ -535,8 +662,11 @@ def admin_users():
                     department=role.title(),
                 )
                 db.session.add(user)
-                db.session.commit()
-                flash('Staff member created successfully.', 'success')
+                if commit_session('Could not create the staff member. Please try again.'):
+                    flash('Staff member created successfully.', 'success')
+        else:
+            app.logger.warning('Unsupported admin_users action %r for user %r', action, user_id)
+            flash('That action could not be completed.', 'danger')
         return redirect(url_for('admin_users'))
     
     users = User.query.filter(User.role != 'student').order_by(User.created_at.desc()).all()
@@ -557,8 +687,8 @@ def office_students():
                 student.email = request.form.get('email', '').strip() or student.email
                 student.student_id = request.form.get('student_id_value', '').strip() or student.student_id
                 student.department = request.form.get('department', '').strip() or student.department
-                db.session.commit()
-                flash('Student updated successfully.', 'success')
+                if commit_session('Could not update the student. Please try again.'):
+                    flash('Student updated successfully.', 'success')
             else:
                 flash('Student not found.', 'danger')
         # Office staff can delete students
@@ -566,10 +696,13 @@ def office_students():
             student = User.query.filter_by(id=student_id, role='student').first()
             if student:
                 db.session.delete(student)
-                db.session.commit()
-                flash('Student deleted successfully.', 'success')
+                if commit_session('Could not delete the student. Please try again.'):
+                    flash('Student deleted successfully.', 'success')
             else:
                 flash('Student not found.', 'danger')
+        else:
+            app.logger.warning('Unsupported office_students action %r for student %r', action, student_id)
+            flash('That action could not be completed.', 'danger')
         return redirect(url_for('office_students'))
     
     students = User.query.filter_by(role='student').order_by(User.created_at.desc()).all()
@@ -586,7 +719,8 @@ def office_profile():
         current_password = request.form.get('current_password', '')
         new_password = request.form.get('new_password', '')
         confirm_password = request.form.get('confirm_password', '')
-        
+        password_changed = False
+
         # Validate email uniqueness if changed
         if email and email != user.email:
             if User.query.filter_by(email=email).first():
@@ -605,7 +739,7 @@ def office_profile():
                 flash('Password must be at least 6 characters.', 'danger')
                 return redirect(url_for('office_profile'))
             user.password_hash = generate_password_hash(new_password)
-            flash('Password changed successfully.', 'success')
+            password_changed = True
         
         # Update other fields
         if full_name:
@@ -614,15 +748,18 @@ def office_profile():
             user.email = email
         if phone:
             user.phone = phone
-        
-        db.session.commit()
-        flash('Profile updated successfully.', 'success')
+
+        if commit_session('Could not update your profile. Please try again.'):
+            if password_changed:
+                flash('Password changed successfully.', 'success')
+            flash('Profile updated successfully.', 'success')
         return redirect(url_for('office_profile'))
     return render_template('office/profile.html')
 
 def send_email_to_student(user, message):
-    email_address = getattr(user, 'email', '')
+    email_address = user.email if user else ''
     if not email_address:
+        app.logger.warning('No email address on record for user %s; skipping email', getattr(user, 'id', None))
         return False
 
     try:
@@ -643,22 +780,25 @@ def send_email_to_student(user, message):
                 smtp.login(smtp_username, smtp_password)
             smtp.send_message(msg)
         return True
-    except Exception:
+    except (OSError, smtplib.SMTPException, ValueError):
+        app.logger.exception('Could not email clearance update to %s', email_address)
         return False
 
 
 def send_sms_to_student(user, message):
-    phone_number = getattr(user, 'phone', '')
+    phone_number = user.phone if user else ''
     if not phone_number:
+        app.logger.warning('No phone number on record for user %s; skipping SMS', getattr(user, 'id', None))
+        return False
+
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    from_number = os.environ.get('TWILIO_FROM_NUMBER')
+    if not (account_sid and auth_token and from_number):
+        app.logger.warning('Twilio credentials are not configured; skipping SMS to %s', phone_number)
         return False
 
     try:
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        from_number = os.environ.get('TWILIO_FROM_NUMBER')
-        if not (account_sid and auth_token and from_number):
-            return False
-
         payload = parse.urlencode({
             'To': phone_number,
             'From': from_number,
@@ -675,38 +815,71 @@ def send_sms_to_student(user, message):
         with urlrequest.urlopen(req, timeout=10) as response:
             response.read()
         return True
-    except (urlerror.URLError, urlerror.HTTPError, Exception):
+    except urlerror.HTTPError as exc:
+        app.logger.error('Twilio rejected the SMS to %s: HTTP %s', phone_number, exc.code, exc_info=True)
+        return False
+    except (urlerror.URLError, OSError, ValueError):
+        app.logger.exception('Could not send SMS to %s', phone_number)
         return False
 
 
 def send_notification_to_student(user, message):
     if send_email_to_student(user, message):
         return True
-    return send_sms_to_student(user, message)
+    if send_sms_to_student(user, message):
+        return True
+    app.logger.error('Every notification channel failed for user %s', getattr(user, 'id', None))
+    return False
 
 
 def update_approval(application_id, field, decision):
-    application = ClearanceApplication.query.get_or_404(application_id)
+    """Record an office decision and notify the student.
+
+    Returns a (saved, notified) pair. Raises ValueError for an unknown decision and
+    aborts with 404 when the application does not exist.
+    """
+    if decision not in APPROVAL_DECISIONS:
+        raise ValueError(f'Unsupported clearance decision: {decision!r}')
+
+    application = db.get_or_404(ClearanceApplication, application_id)
     setattr(application, field, decision)
     application.approved_by = current_user().full_name
     application.refresh_status()
+    if not commit_session('Could not record the decision. Please try again.'):
+        return False, False
 
     actor_role = ROLE_LABELS.get(current_user().role, current_user().role)
-    action = 'approved' if decision == 'approved' else 'rejected'
-    message = f"Your clearance request '{application.purpose}' was {action} by {actor_role}."
-    student = User.query.get(application.user_id)
-    if student:
-        send_notification_to_student(student, message)
+    message = f"Your clearance request '{application.purpose}' was {decision} by {actor_role}."
+    student = db.session.get(User, application.user_id)
+    if student is None:
+        app.logger.error('Application %s references missing user %s', application.id, application.user_id)
+        return True, False
+    return True, send_notification_to_student(student, message)
 
-    db.session.commit()
+def handle_approval_request(field, office_label, endpoint):
+    """Validate an approval form submission, record it and report the outcome."""
+    application_id = request.form.get('application_id', type=int)
+    decision = request.form.get('decision', '').strip()
+    if not application_id or decision not in APPROVAL_DECISIONS:
+        app.logger.warning(
+            'Invalid %s approval submission: application_id=%r decision=%r',
+            field, request.form.get('application_id'), decision,
+        )
+        flash('Please choose an application and a valid decision.', 'danger')
+        return redirect(url_for(endpoint))
+
+    saved, notified = update_approval(application_id, field, decision)
+    if saved:
+        flash(f'{office_label} decision recorded.', 'success')
+        if not notified:
+            flash('The student could not be notified automatically. Please contact them directly.', 'warning')
+    return redirect(url_for(endpoint))
 
 @app.route('/department/approve', methods=['GET', 'POST'])
 @roles_required('department')
 def department_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'department_status', request.form['decision'])
-        flash('Department decision recorded.', 'success')
-        return redirect(url_for('department_approve'))
+        return handle_approval_request('department_status', 'Department', 'department_approve')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('department/approve.html', applications=applications)
 
@@ -714,9 +887,7 @@ def department_approve():
 @roles_required('library')
 def library_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'library_status', request.form['decision'])
-        flash('Library decision recorded.', 'success')
-        return redirect(url_for('library_approve'))
+        return handle_approval_request('library_status', 'Library', 'library_approve')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('library/approve.html', applications=applications)
 
@@ -724,9 +895,7 @@ def library_approve():
 @roles_required('finance')
 def finance_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'finance_status', request.form['decision'])
-        flash('Finance decision recorded.', 'success')
-        return redirect(url_for('finance_approve'))
+        return handle_approval_request('finance_status', 'Finance', 'finance_approve')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('finance/approve.html', applications=applications)
 
@@ -734,9 +903,7 @@ def finance_approve():
 @roles_required('dormitory')
 def dormitary_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'dormitory_status', request.form['decision'])
-        flash('Dormitory decision recorded.', 'success')
-        return redirect(url_for('dormitary_approve'))
+        return handle_approval_request('dormitory_status', 'Dormitory', 'dormitary_approve')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('dormitary/approve.html', applications=applications)
 
@@ -744,9 +911,7 @@ def dormitary_approve():
 @roles_required('registrar')
 def registrar_approve():
     if request.method == 'POST':
-        update_approval(int(request.form['application_id']), 'registrar_status', request.form['decision'])
-        flash('Registrar decision recorded.', 'success')
-        return redirect(url_for('registrar_approve'))
+        return handle_approval_request('registrar_status', 'Registrar', 'registrar_approve')
     applications = ClearanceApplication.query.order_by(ClearanceApplication.submitted_at.desc()).all()
     return render_template('registrar/approve.html', applications=applications)
 
@@ -756,8 +921,39 @@ def registrar_certificate():
     application_id = request.args.get('application_id', type=int)
     application = None
     if application_id:
-        application = ClearanceApplication.query.get(application_id)
+        application = db.get_or_404(ClearanceApplication, application_id)
+        user = current_user()
+        if user.role == 'student' and application.user_id != user.id:
+            app.logger.warning('Student %s tried to open certificate %s', user.id, application_id)
+            abort(403)
     return render_template('registrar/certificate.html', application=application)
 
+@app.errorhandler(400)
+def handle_bad_request(error):
+    app.logger.info('Bad request for %s: %s', request.path, error)
+    return render_template('error.html', code=400, message='The request could not be understood.'), 400
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+    return render_template('error.html', code=403, message='You do not have access to that page.'), 403
+
+@app.errorhandler(404)
+def handle_not_found(error):
+    return render_template('error.html', code=404, message='We could not find that page.'), 404
+
+@app.errorhandler(413)
+def handle_payload_too_large(error):
+    limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+    return render_template('error.html', code=413, message=f'The upload is too large. The limit is {limit_mb} MB.'), 413
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    """Log every unhandled exception before returning a generic error page."""
+    if isinstance(error, HTTPException):
+        return error
+    db.session.rollback()
+    app.logger.exception('Unhandled error while processing %s %s', request.method, request.path)
+    return render_template('error.html', code=500, message='Something went wrong on our side. The issue has been logged.'), 500
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1')
