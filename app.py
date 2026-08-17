@@ -19,7 +19,7 @@ UPLOAD_FOLDER.mkdir(exist_ok=True)
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'replace-this-with-a-secret')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', f'sqlite:///{DB_PATH}')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 
